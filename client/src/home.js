@@ -30,6 +30,12 @@ function LogoutButton() {
       }
     });
 
+    socket.on('commandReceived', (commandInfo) => {
+      if (commandInfo.systemMessage && commandInfo.message) {
+        setMessages((prevMessages) => [...prevMessages, commandInfo.message]);
+      }
+    });
+
     socket.on('previousMessages', (previousMessages) => {
       setMessages(previousMessages);
     });
@@ -107,7 +113,10 @@ function LogoutButton() {
     } else {
       sendMessageToServer(messageWithTimestamp);
 
-      setMessages((prevMessages) => [...prevMessages, messageWithTimestamp]);
+      if (messageWithTimestamp.nickname !== nickname) {
+        setMessages((prevMessages) => [...prevMessages, messageWithTimestamp]);
+      }
+      
       setNewMessage('');
     }
   };
@@ -132,11 +141,12 @@ function LogoutButton() {
         <p>Hola {nickname}</p>
         <ul id="messages">
           {messages.map((msg, index) => (
-            <li key={index}>
+            <li key={index} className={msg.systemMessage ? 'system-message' : ''}>
               <strong>{msg.nickname}:</strong> {msg.message} - {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : 'Invalid Date'}
             </li>
           ))}
         </ul>
+
         <form id="form" onSubmit={handleSendMessage}>
           <input
             type="text"
