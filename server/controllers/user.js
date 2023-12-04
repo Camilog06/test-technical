@@ -1,5 +1,5 @@
 import { UserModel } from '../models/mysql/user.js';
-import { wss } from '../index.js';
+import { io } from '../index.js'; 
 
 export const UserController = {
   async register(req, res) {
@@ -11,17 +11,15 @@ export const UserController = {
         await UserModel.updateUserStatus(nickname, 'active');
         res.json({ success: true });
 
-        wss.clients.forEach((client) => {
-          client.send(JSON.stringify({ nickname, state: 'active' }));
-        });
+        
+        io.emit('userStatusUpdate', { nickname, state: 'active' });
       } else {
         const newUser = await UserModel.register({ input: { nickname, state: 'active' } });
 
         res.json({ success: true, user: newUser });
 
-        wss.clients.forEach((client) => {
-          client.send(JSON.stringify({ nickname, state: 'active' }));
-        });
+        
+        io.emit('userStatusUpdate', { nickname, state: 'active' });
       }
     } catch (error) {
       console.error('Error al registrar el usuario:', error.message);
@@ -42,6 +40,8 @@ export const UserController = {
 
       await UserModel.updateUserStatus(nickname, state);
       res.json({ success: true });
+
+      io.emit('userStatusUpdate', { nickname, state });
     } catch (error) {
       console.error('Error al actualizar el estado del usuario:', error.message);
       res.status(500).json({ error: 'Internal Server Error' });
@@ -59,51 +59,49 @@ export const UserController = {
       await UserModel.updateUserStatus(user.nickname, 'inactive');
 
       res.json({ success: true });
+
+      io.emit('userStatusUpdate', { nickname: user.nickname, state: 'inactive' });
     } catch (error) {
       console.error('Error al cerrar sesión:', error.message);
       res.status(500).json({ error: 'Internal Server Error' });
     }
   },
 
-  
-async handleCommand(req, res) {
-  try {
-    const { nickname, command, args } = req.body;
+  async handleCommand(req, res) {
+    try {
+      const { nickname, command, args } = req.body;
 
-    switch (command) {
-      case 'youtube':
-        if (args.length > 0) {
-          const youtubeLink = args[0];
+      switch (command) {
+        case 'youtube':
+          if (args.length > 0) {
+            const youtubeLink = args[0];
 
-          
-          const message = {
-            nickname,
-            message: `¡${nickname} quiere compartir un enlace de YouTube! Enlace: ${youtubeLink}`,
-            timestamp: new Date().toISOString(),
-          };
+            const message = {
+              nickname,
+              message: `¡${nickname} quiere compartir un enlace de YouTube! Enlace: ${youtubeLink}`,
+              timestamp: new Date().toISOString(),
+            };
 
-          wss.clients.forEach((client) => {
-            client.send(JSON.stringify({ systemMessage: true, message }));
-          });
+            io.emit('commandReceived', { systemMessage: true, message });
 
-          console.log('Mensaje enviado desde el servidor:', message);
+            console.log('Mensaje enviado desde el servidor:', message);
 
-          res.json({ success: true });
-        } else {
-          res.status(400).json({ error: 'Missing link in the /youtube command' });
-        }
-        break;
+            res.json({ success: true });
+          } else {
+            res.status(400).json({ error: 'Missing link in the /youtube command' });
+          }
+          break;
 
-      default:
-        res.status(400).json({ error: 'Invalid command' });
+        default:
+          res.status(400).json({ error: 'Invalid command' });
+      }
+    } catch (error) {
+      console.error('Error al manejar el comando:', error.message);
+      res.status(500).json({ error: 'Internal Server Error' });
     }
-  } catch (error) {
-    console.error('Error al manejar el comando:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-}
-
+  },
 };
+
 
 
 

@@ -2,15 +2,14 @@
   padding: 20px;
   border: 1px solid #ccc;
   border-radius: 8px;
+  max-height: 400px; 
+  overflow-y: auto; 
 }
 
 #messages {
   list-style-type: none;
   padding: 0;
-}
-
-#messages li {
-  margin-bottom: 8px;
+  overflow-y: auto; 
 }
 
 #form {
