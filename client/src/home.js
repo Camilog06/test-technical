@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import './App.css'
+import './App.css';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { io } from 'socket.io-client';
 
 function LogoutButton() {
   const [nickname, setNickname] = useState('');
@@ -14,7 +15,31 @@ function LogoutButton() {
     if (location.state && location.state.nickname) {
       setNickname(location.state.nickname);
     }
-  }, [location.state] );
+  }, [location.state]);
+
+  useEffect(() => {
+    const socket = io('http://localhost:1234');
+
+    socket.on('message', (receivedMessage) => {
+      console.log('Mensaje recibido en el cliente:', receivedMessage);
+
+      if (receivedMessage.timestamp) {
+        setMessages((prevMessages) => [...prevMessages, receivedMessage]);
+      } else {
+        console.warn('Mensaje recibido sin marca de tiempo válida:', receivedMessage);
+      }
+    });
+
+    socket.on('previousMessages', (previousMessages) => {
+      setMessages(previousMessages);
+    });
+
+    socket.emit('getPreviousMessages');
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -50,20 +75,20 @@ function LogoutButton() {
 
   const handleSendMessage = async (event) => {
     event.preventDefault();
-  
+
     if (newMessage.trim() === '') {
       return;
     }
-  
+
     const messageWithTimestamp = {
       nickname,
       message: newMessage,
       timestamp: new Date().toISOString(),
     };
-  
+
     if (newMessage.startsWith('/')) {
       const [command, ...args] = newMessage.slice(1).split(' ');
-  
+
       try {
         const response = await fetch('http://localhost:1234/users/command', {
           method: 'POST',
@@ -72,7 +97,7 @@ function LogoutButton() {
           },
           body: JSON.stringify({ nickname, command, args }),
         });
-  
+
         if (!response.ok) {
           console.error('Error al enviar el comando al servidor:', response.statusText);
         }
@@ -81,72 +106,50 @@ function LogoutButton() {
       }
     } else {
       sendMessageToServer(messageWithTimestamp);
-  
+
       setMessages((prevMessages) => [...prevMessages, messageWithTimestamp]);
       setNewMessage('');
     }
   };
-    
 
-  const setupWebSocket = () => {
-    const ws = new WebSocket('ws://localhost:1234'); 
-
-    ws.onmessage = (event) => {
-      const receivedMessage = JSON.parse(event.data);
-      console.log('Mensaje recibido en el cliente:', receivedMessage);
-    
-      if (receivedMessage.message.timestamp) {
-        setMessages((prevMessages) => [...prevMessages, receivedMessage.message]);
-      } else {
-        console.warn('Mensaje recibido sin marca de tiempo válida:', receivedMessage);
-      }
-    };
-
-    
-    return () => {
-      ws.close();
-    };
-  };
-
- 
-  useEffect(() => {
-    const cleanupWebSocket = setupWebSocket();
-
-    
-    return cleanupWebSocket;
-  }, []); 
-
-  
-  const sendMessageToServer = (message) => {
-   
-    console.log('Enviando mensaje al servidor:', message);
-    console.log(nickname)
+  const sendMessageToServer = async (message) => {
+    try {
+      await fetch('http://localhost:1234/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(message),
+      });
+    } catch (error) {
+      console.error('Error al enviar mensaje al servidor:', error.message);
+    }
   };
 
   return (
     <>
       <section id="chat">
-      <p>Hola {nickname}</p>
-  <ul id="messages">
-    {messages.map((msg, index) => (
-      <li key={index}>
-        <strong>{msg.nickname}:</strong> {msg.message} - {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : 'Invalid Date'}
-      </li>
-    ))}
-  </ul>
-  <form id="form" onSubmit={handleSendMessage}>
-    <input
-      type="text"
-      name="message"
-      id="input"
-      placeholder="Type a message"
-      autoComplete="off"
-      value={newMessage}
-      onChange={(e) => setNewMessage(e.target.value)}
-    />
-    <button type="submit">Enviar</button>
-  </form>
-</section>
+        <p>Hola {nickname}</p>
+        <ul id="messages">
+          {messages.map((msg, index) => (
+            <li key={index}>
+              <strong>{msg.nickname}:</strong> {msg.message} - {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : 'Invalid Date'}
+            </li>
+          ))}
+        </ul>
+        <form id="form" onSubmit={handleSendMessage}>
+          <input
+            type="text"
+            name="message"
+            id="input"
+            placeholder="Type a message"
+            autoComplete="off"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+          />
+          <button type="submit">Enviar</button>
+        </form>
+      </section>
 
       <button onClick={handleLogout} disabled={loggingOut}>
         Cerrar Sesión
@@ -156,3 +159,5 @@ function LogoutButton() {
 }
 
 export default LogoutButton;
+
+
