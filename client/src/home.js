@@ -1,173 +1,190 @@
 import React, { useState, useEffect } from 'react';
+import io from 'socket.io-client';
+import moment from 'moment';
 import './App.css';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
 
-function LogoutButton() {
-  const [nickname, setNickname] = useState('');
-  const [loggingOut, setLoggingOut] = useState(false);
+const ChatView = () => {
+  const [socket, setSocket] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const navigate = useNavigate();
-
-  const location = useLocation();
-  useEffect(() => {
-    if (location.state && location.state.nickname) {
-      setNickname(location.state.nickname);
-    }
-  }, [location.state]);
+  const [nickname, setNickname] = useState('');
+  const [message, setMessage] = useState('');
+  const [youtubeResults, setYoutubeResults] = useState([]);
+  const [giphyResults, setgiphyResults] = useState([]);
+  
 
   useEffect(() => {
-    const socket = io('http://localhost:1234');
+    const newSocket = io('http://localhost:1234');
+    setSocket(newSocket);
+    newSocket.on('connect', () => {
+      console.log('Conectado al servidor');
+    });
+  
+    newSocket.on('newMessage', (msg) => {
+      console.log('Nuevo mensaje del servidor:', msg);
+      setMessages((prevMessages) => [...prevMessages, msg]);
+    }); 
+    
+    newSocket.on('previousMessages', (prevMessages) => {
+      setMessages(prevMessages); 
+    });
 
-    socket.on('message', (receivedMessage) => {
-      console.log('Mensaje recibido en el cliente:', receivedMessage);
 
-      if (receivedMessage.timestamp) {
-        setMessages((prevMessages) => [...prevMessages, receivedMessage]);
-      } else {
-        console.warn('Mensaje recibido sin marca de tiempo válida:', receivedMessage);
+    newSocket.on('youtubeResults', (results) => {
+      console.log('Resultados de YouTube recibidos:', results);
+      setYoutubeResults(results);
+    });
+
+    try {
+
+    newSocket.on('giphyResults', (results) => {
+      console.log('Resultados de Giphy recibidos:', results);
+      if (results.gifUrl) {
+        setgiphyResults([{ gifUrl: results.gifUrl }]);
       }
     });
 
-    socket.on('commandReceived', (commandInfo) => {
-      if (commandInfo.systemMessage && commandInfo.message) {
-        setMessages((prevMessages) => [...prevMessages, commandInfo.message]);
-      }
-    });
-
-    socket.on('previousMessages', (previousMessages) => {
-      setMessages(previousMessages);
-    });
-
-    socket.emit('getPreviousMessages');
+  } catch (error) {
+    console.error('Error searching Giphy:', error);
+}
+        
+    newSocket.emit('previousMessages');
 
     return () => {
-      socket.disconnect();
+      newSocket.disconnect();
     };
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      setLoggingOut(true);
+  const handleSendMessage = () => {
+    if (message.startsWith('/youtube')) {
+      const keyword = message.replace('/youtube', '').trim();
+      handleSearchYouTube(keyword);
+    } else {
 
-      const response = await fetch('http://localhost:1234/users/logout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({}),
-      });
+      if (message.startsWith('/giphy')) {
+        const keyword = message.replace('/giphy', '').trim();
+        handleSearchGiphy(keyword);
+      } 
+      else {
 
-      if (response.ok) {
-        await fetch(`http://localhost:1234/users/${nickname}/state`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ state: 'inactive' }),
-        });
-        navigate('/');
-      } else {
-        console.error('Error al cerrar sesión:', response.statusText);
+      if (!nickname) {
+        alert('Ingresa el nickname');
+        return;
       }
-    } catch (error) {
-      console.error('Error de red:', error.message);
-    } finally {
-      setLoggingOut(false);
+  
+      if (!message) {
+        alert('El mensaje no puede estar vacío');
+        return;
+      }
+  
+      if (socket) {
+        const timestamp = moment().format();
+  
+        socket.emit('message', {
+          nickname,
+          message,
+          timestamp,
+        });
+
+        setMessages([...messages, { nickname, message, timestamp }]);
+        setMessage('');
+      }
+    }
+    }
+  };
+  
+
+  const handleKeyPress = (event) => {
+    if (event.key === 'Enter') {
+      handleSendMessage();
     }
   };
 
-  const handleSendMessage = async (event) => {
-    event.preventDefault();
-
-    if (newMessage.trim() === '') {
-      return;
+  const handleSearchYouTube = (keyword) => {
+    if (socket) {
+      console.log('Searching YouTube for:', keyword);
+      socket.emit('searchYouTube', keyword);
     }
+  };
 
-    const messageWithTimestamp = {
-      nickname,
-      message: newMessage,
-      timestamp: new Date().toISOString(),
-    };
-
-    if (newMessage.startsWith('/')) {
-      const [command, ...args] = newMessage.slice(1).split(' ');
-
+  const handleSearchGiphy = async (keyword) => {
+    if (socket) {
+      console.log('Searching Giphy for:', keyword);
       try {
-        const response = await fetch('http://localhost:1234/users/command', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ nickname, command, args }),
-        });
-
-        if (!response.ok) {
-          console.error('Error al enviar el comando al servidor:', response.statusText);
+        const response = await fetch(`http://localhost:1234/giphy?keywordg=${encodeURIComponent(keyword)}`);
+        const results = await response.json();
+      
+        if (results && results.error) {
+          console.error('Error searching Giphy:', results.error);
+        } else if (results && Array.isArray(results) && results.length > 0 && results[0].gifUrl) {
+          setgiphyResults(results);
+        } else {
+          console.error('No gifUrl found in Giphy results.');
         }
       } catch (error) {
-        console.error('Error de red al enviar el comando al servidor:', error.message);
-      }
-    } else {
-      sendMessageToServer(messageWithTimestamp);
-
-      if (messageWithTimestamp.nickname !== nickname) {
-        setMessages((prevMessages) => [...prevMessages, messageWithTimestamp]);
-      }
-      
-      setNewMessage('');
+        console.error('Error searching Giphy:', error);
+      }      
     }
-  };
-
-  const sendMessageToServer = async (message) => {
-    try {
-      await fetch('http://localhost:1234/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(message),
-      });
-    } catch (error) {
-      console.error('Error al enviar mensaje al servidor:', error.message);
-    }
-  };
+  };  
+    
 
   return (
-    <>
-      <section id="chat">
-        <p>Hola {nickname}</p>
-        <ul id="messages">
-          {messages.map((msg, index) => (
-            <li key={index} className={msg.systemMessage ? 'system-message' : ''}>
-              <strong>{msg.nickname}:</strong> {msg.message} - {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : 'Invalid Date'}
+    <div>
+      <div>
+        <label>Nickname:</label>
+        <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)} />
+      </div>
+      <div>
+          <ul>
+            {messages.map((msg, index) => (
+              <li key={index}>
+                <strong>{msg.nickname}:</strong> {msg.message} ({msg.timestamp})
+              </li>
+            ))}
+          </ul>
+      </div>
+      <div>
+        
+        <ul>
+          {youtubeResults.map((result, index) => (
+            <li key={index}>
+              <h3>Resultados de YouTube:</h3>
+              <iframe
+                width="560"
+                height="315"
+                src={`https://www.youtube.com/embed/${result.videoId}`}
+                title={result.title}
+                frameBorder="0"
+                allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              ></iframe>
+              <p>Título: {result.title}</p>
             </li>
           ))}
         </ul>
-
-        <form id="form" onSubmit={handleSendMessage}>
-          <input
-            type="text"
-            name="message"
-            id="input"
-            placeholder="Type a message"
-            autoComplete="off"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-          />
-          <button type="submit">Enviar</button>
-        </form>
-      </section>
-
-      <button onClick={handleLogout} disabled={loggingOut}>
-        Cerrar Sesión
-      </button>
-    </>
+      </div>
+      <div>
+        <ul>
+          {giphyResults.map((result, index) => (
+            <li key={index}>
+              <h3>Resultados de Giphy:</h3>
+              {result.gifUrl && <img src={result.gifUrl} alt="Giphy" />}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <label>Message:</label>
+        <input
+          type="text"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={handleKeyPress}
+        />
+        <button onClick={handleSendMessage}>Send</button>
+      </div>
+    </div>
+    
   );
-}
+};
 
-export default LogoutButton;
-
-
+export default ChatView;
